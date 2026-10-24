@@ -17,6 +17,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Reject changes to published package versions
+        if: github.event_name == 'pull_request'
+        run: |
+          git diff --name-status "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}" \
+            | awk '$2 ~ /^packages\// && $1 != "A" { print "Published package versions are immutable: " $2; bad=1 } END { exit bad }'
       - run: python3 tools/build_index.py --packages-dir packages --validate
 
   publish-index:
