@@ -48,10 +48,22 @@ def manifest_from_archive(path: Path) -> dict:
     return tomllib.loads(raw.decode("utf-8"))
 
 
+def version_key(version: str) -> tuple:
+    """Sort supported SemVer-like versions; a stable release outranks prerelease."""
+    core, separator, suffix = version, "", ""
+    if "-" in version:
+        core, suffix = version.split("-", maxsplit=1)
+        separator = "-"
+    elif "+" in version:
+        core, _ = version.split("+", maxsplit=1)
+    numbers = tuple(int(part) for part in core.split("."))
+    return numbers, 1 if not separator else 0, suffix
+
+
 def build(packages_dir: Path, base_url: str) -> dict:
     packages = []
     if not packages_dir.exists():
-        return {"format": 1, "packages": packages}
+        return {"format": 2, "packages": packages, "latest": {}}
     for archive in sorted(packages_dir.rglob("*.yap")):
         relative = archive.relative_to(packages_dir)
         if len(relative.parts) != 2:
@@ -77,7 +89,11 @@ def build(packages_dir: Path, base_url: str) -> dict:
             "sha256": digest,
             "url": f"{base_url.rstrip('/')}/{package_id}/{version}.yap",
         })
-    return {"format": 1, "packages": packages}
+    packages.sort(key=lambda package: (package["id"], version_key(package["version"])))
+    latest = {}
+    for package in packages:
+        latest[package["id"]] = package["version"]
+    return {"format": 2, "packages": packages, "latest": latest}
 
 
 def main() -> int:
