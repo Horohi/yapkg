@@ -36,10 +36,16 @@ def manifest_from_archive(path: Path) -> dict:
             members = archive.getmembers()
             if any(not safe_name(member.name) or member.issym() or member.islnk() for member in members):
                 raise ValueError("unsafe TAR entry")
-            member = archive.getmember("plugin.toml") if "plugin.toml" in archive.getnames() else None
-            if member is None or not member.isfile():
+            # GNU tar commonly writes every root member as `./name`; it is
+            # still the archive root, unlike `package/plugin.toml`.
+            manifests = [
+                member
+                for member in members
+                if PurePosixPath(member.name).parts == ("plugin.toml",)
+            ]
+            if len(manifests) != 1 or not manifests[0].isfile():
                 raise ValueError("plugin.toml must be at archive root")
-            extracted = archive.extractfile(member)
+            extracted = archive.extractfile(manifests[0])
             if extracted is None:
                 raise ValueError("cannot read plugin.toml")
             raw = extracted.read()
@@ -74,7 +80,10 @@ def build(packages_dir: Path, base_url: str) -> dict:
             raise ValueError(f"{relative}: invalid package ID")
         if not VERSION_RE.fullmatch(version):
             raise ValueError(f"{relative}: invalid SemVer version")
-        manifest = manifest_from_archive(archive)
+        try:
+            manifest = manifest_from_archive(archive)
+        except (OSError, ValueError, tomllib.TOMLDecodeError, tarfile.TarError, zipfile.BadZipFile, UnicodeDecodeError) as error:
+            raise ValueError(f"{relative}: {error}") from error
         if manifest.get("id") != package_id or manifest.get("version") != version:
             raise ValueError(f"{relative}: path must match plugin.toml id and version")
         entry = manifest.get("entry")
